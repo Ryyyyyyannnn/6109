@@ -83,6 +83,13 @@ const ROLLUPS = {
     confirmationLatencyMs:    2000,   // sequencer soft-confirm; typical Arbitrum ~0.25s, using 2s as avg under load
     settlementAssumption:     "Optimistic — 7-day challenge window for L1 finality",
     congestion:               10,
+    // Token liquidity depth (0–1, 1 = deepest market).
+    // Source: relative TVL/volume ranking, DeFiLlama 2024 Q4.
+    // Affects slippage cost for token_swap intents.
+    liquidity: { ETH: 0.98, USDC: 0.95, WBTC: 0.72, DAI: 0.80 },
+    // Estimated bridge confirmation time from L1 (ms, soft-confirm).
+    // Used to compute effective latency for asset_transfer intents.
+    bridgeLatencyMs: 90_000,
   },
   rollupB: {
     id:            "rollupB",
@@ -97,6 +104,8 @@ const ROLLUPS = {
     confirmationLatencyMs:    800,    // faster sequencer than Arbitrum in typical conditions
     settlementAssumption:     "Optimistic — 7-day challenge window for L1 finality",
     congestion:               35,
+    liquidity: { ETH: 0.97, USDC: 0.92, WBTC: 0.68, DAI: 0.88 },
+    bridgeLatencyMs: 75_000,
   },
   rollupC: {
     id:            "rollupC",
@@ -112,6 +121,10 @@ const ROLLUPS = {
     confirmationLatencyMs:    300,    // fast sequencer soft-confirm; L1 proof posting ~1h
     settlementAssumption:     "ZK validity proof — L1 finality within ~1 hour of batch posting",
     congestion:               55,
+    // ZK rollups have narrower DeFi ecosystems currently → lower liquidity for
+    // non-ETH tokens; higher slippage on WBTC/DAI swaps.
+    liquidity: { ETH: 0.90, USDC: 0.85, WBTC: 0.60, DAI: 0.70 },
+    bridgeLatencyMs: 60_000,
   },
 };
 
@@ -140,15 +153,54 @@ setInterval(stepCongestion, 4000);
 
 /** Fee increases quadratically with congestion (mirrors EIP-1559 surge pricing) */
 function getFee(rollupId) {
-  const r  = ROLLUPS[rollupId];
-  const c  = r.congestion / 100;          // 0–1
-  return r.baseFeeGwei * (1 + c * c);     // quadratic surge
+  const r = ROLLUPS[rollupId];
+  const c = r.congestion / 100;
+  return r.baseFeeGwei * (1 + c * c);
 }
 
-/** Latency increases linearly with congestion */
+/** Latency increases linearly with congestion (soft-confirmation only) */
 function getLatency(rollupId) {
   const r = ROLLUPS[rollupId];
   return Math.round(r.confirmationLatencyMs * (1 + r.congestion / 100));
+}
+
+/**
+ * Slippage cost in basis points for a token_swap intent.
+ * Model: base slippage = 5 bps at perfect liquidity (depth = 1.0).
+ * Lower liquidity → higher slippage: slippage_bps = BASE_BPS / liquidity.
+ * Ref: standard AMM price-impact approximation for thin markets.
+ */
+function getSlippageBps(rollupId, token) {
+  const liq = (ROLLUPS[rollupId].liquidity || {})[token] ?? 0.5;
+  return 5 / liq;
+}
+
+/**
+ * Effective fee for scoring:
+ *   • payment / asset_transfer — base fee only
+ *   • token_swap — base fee + slippage overhead (penalises low-liquidity pools)
+ */
+function getEffectiveFee(rollupId, intentType, token) {
+  const base = getFee(rollupId);
+  if (intentType === "token_swap") {
+    const slippageBps = getSlippageBps(rollupId, token);
+    return base * (1 + slippageBps / 10_000);
+  }
+  return base;
+}
+
+/**
+ * Effective latency for scoring:
+ *   • payment / token_swap — confirmation latency only
+ *   • asset_transfer — confirmation + 30% of bridge latency
+ *     (user must wait for bridge confirmation before funds are usable)
+ */
+function getEffectiveLatency(rollupId, intentType) {
+  const base = getLatency(rollupId);
+  if (intentType === "asset_transfer") {
+    return base + (ROLLUPS[rollupId].bridgeLatencyMs ?? 0) * 0.3;
+  }
+  return base;
 }
 
 /**
@@ -177,15 +229,22 @@ const WEIGHTS = {
 /**
  * Score every rollup and return sorted results.
  * Scores are normalised so the "best" rollup on each criterion gets 100.
+ *
+ * intentType and token adjust the effective fee/latency used for scoring:
+ *   token_swap  → fee includes slippage overhead (lower liquidity = higher cost)
+ *   asset_transfer → latency includes bridge overhead
+ *   payment     → no adjustment (standard scoring)
  */
-function scoreAllRollups(preference) {
+function scoreAllRollups(preference, intentType = "payment", token = "ETH") {
   const ids     = Object.keys(ROLLUPS);
   const weights = WEIGHTS[preference] || WEIGHTS.balanced;
 
-  const fees      = ids.map(getFee);
-  const latencies = ids.map(getLatency);
+  const baseFees  = ids.map(getFee);
+  const baseLats  = ids.map(getLatency);
+  const fees      = ids.map(id => getEffectiveFee(id, intentType, token));
+  const latencies = ids.map(id => getEffectiveLatency(id, intentType));
 
-  const minFee = Math.min(...fees),    maxFee = Math.max(...fees);
+  const minFee = Math.min(...fees),      maxFee = Math.max(...fees);
   const minLat = Math.min(...latencies), maxLat = Math.max(...latencies);
 
   return ids
@@ -194,7 +253,6 @@ function scoreAllRollups(preference) {
       const latency = latencies[i];
       const success = getSuccessProb(id);
 
-      // Normalise: 1 = best (lowest fee / lowest latency), 0 = worst
       const normFee = maxFee === minFee ? 1 : 1 - (fee - minFee) / (maxFee - minFee);
       const normLat = maxLat === minLat ? 1 : 1 - (latency - minLat) / (maxLat - minLat);
 
@@ -203,16 +261,23 @@ function scoreAllRollups(preference) {
         weights.latency * normLat +
         weights.success * success;
 
+      const feeAdj     = +(fee - baseFees[i]).toFixed(4);
+      const latencyAdj = Math.round(latency - baseLats[i]);
+
       return {
-        rollupId:            id,
-        name:                ROLLUPS[id].name,
-        rollupType:          ROLLUPS[id].rollupType,
+        rollupId:             id,
+        name:                 ROLLUPS[id].name,
+        rollupType:           ROLLUPS[id].rollupType,
         settlementAssumption: ROLLUPS[id].settlementAssumption,
-        fee:         +fee.toFixed(4),
-        latency,
-        congestion:  Math.round(ROLLUPS[id].congestion),
-        successProb: +(success * 100).toFixed(1),
-        score:       +(score * 100).toFixed(2),
+        fee:            +fee.toFixed(4),
+        baseFee:        +baseFees[i].toFixed(4),
+        feeAdjustment:  feeAdj,       // > 0 means slippage overhead was added
+        latency:        Math.round(latency),
+        baseLatency:    baseLats[i],
+        latencyAdjustment: latencyAdj, // > 0 means bridge overhead was added
+        congestion:     Math.round(ROLLUPS[id].congestion),
+        successProb:    +(success * 100).toFixed(1),
+        score:          +(score * 100).toFixed(2),
         scoreBreakdown: {
           feeScore:     +(normFee  * 100).toFixed(1),
           latencyScore: +(normLat  * 100).toFixed(1),
@@ -269,6 +334,8 @@ app.get("/api/rollups", (_req, res) => {
     congestion:          Math.round(r.congestion),
     successProb:         +(getSuccessProb(r.id) * 100).toFixed(1),
     settlementAssumption: r.settlementAssumption,
+    liquidity:           r.liquidity,
+    bridgeLatencyMs:     r.bridgeLatencyMs,
     execCount:   [...intentStore.values()]
                    .filter(i => i.selectedRollup === r.id && i.status === "executed").length,
   }));
@@ -281,11 +348,11 @@ app.get("/api/rollups", (_req, res) => {
  * Body: { preference?: "cheapest"|"fastest"|"balanced" }
  */
 app.post("/api/intents/preview", (req, res) => {
-  const { preference = "balanced" } = req.body;
-  const scores  = scoreAllRollups(preference);
+  const { preference = "balanced", intentType = "payment", token = "ETH" } = req.body;
+  const scores  = scoreAllRollups(preference, intentType, token);
   const winner  = scores[0];
   const reasons = buildReasons(winner, scores);
-  res.json({ winner, allScores: scores, reasons, timestamp: Date.now() });
+  res.json({ winner, allScores: scores, reasons, intentType, token, timestamp: Date.now() });
 });
 
 /**
@@ -324,7 +391,7 @@ app.post("/api/intents", (req, res) => {
   }
 
   const id     = "0x" + crypto.randomBytes(32).toString("hex");
-  const scores = scoreAllRollups(preference);
+  const scores = scoreAllRollups(preference, intentType, token);
 
   // Apply user constraints — filter to eligible rollups only
   const eligible = scores.filter(s =>

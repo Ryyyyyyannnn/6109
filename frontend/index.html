@@ -423,7 +423,7 @@ header {
     <div class="field">
       <label class="field-label">Intent Type</label>
       <div class="input-row">
-        <select id="intentType">
+        <select id="intentType" onchange="livePreview()">
           <option value="payment">Payment — send tokens to address</option>
           <option value="token_swap">Token Swap — exchange tokens</option>
           <option value="asset_transfer">Asset Transfer — bridge or move assets</option>
@@ -442,7 +442,7 @@ header {
     <div class="field">
       <label class="field-label">Token</label>
       <div class="input-row">
-        <select id="token" onchange="document.getElementById('tokenBadge').textContent=this.value">
+        <select id="token" onchange="document.getElementById('tokenBadge').textContent=this.value; livePreview()">
           <option value="ETH">ETH</option>
           <option value="USDC">USDC</option>
           <option value="WBTC">WBTC</option>
@@ -754,6 +754,16 @@ function renderNetworkGrid(rollups) {
     </div>
   </div>
   ${r.settlementAssumption ? `<div style="font-size:.58rem;color:var(--dim);margin-top:8px;line-height:1.5">${r.settlementAssumption}</div>` : ""}
+  ${r.liquidity ? (() => {
+    const token = document.getElementById("token")?.value || "ETH";
+    const liq   = r.liquidity[token];
+    const liqPct = liq != null ? Math.round(liq * 100) : null;
+    const liqColor = liqPct == null ? "var(--dim)"
+      : liqPct >= 90 ? "var(--success)" : liqPct >= 70 ? "var(--warn)" : "var(--danger)";
+    return liqPct != null
+      ? `<div style="font-size:.58rem;margin-top:4px"><span style="color:var(--dim)">Liquidity (${token}):</span> <span style="color:${liqColor};font-weight:700">${liqPct}%</span></div>`
+      : "";
+  })() : ""}
 </div>`;
   }).join("");
 }
@@ -762,8 +772,10 @@ function renderNetworkGrid(rollups) {
 async function livePreview() {
   if (!isOnline) return;
   try {
+    const intentType = document.getElementById("intentType").value;
+    const token      = document.getElementById("token").value;
     const data = await apiFetch("/intents/preview", {
-      method:"POST", body: JSON.stringify({ preference })
+      method:"POST", body: JSON.stringify({ preference, intentType, token })
     });
     lastPreview = data;
     renderRouteDisplay(data.winner, data.allScores, data.reasons, false);
@@ -872,10 +884,16 @@ function renderRouteDisplay(winner, allScores, reasons, submitted, intentData) {
   <div class="tile">
     <div class="tile-label">Est. Fee</div>
     <div class="tile-value warn">${winner.fee} gwei</div>
+    ${winner.feeAdjustment > 0
+      ? `<div style="font-size:.58rem;color:var(--warn);margin-top:2px">base ${winner.baseFee} + slippage ${winner.feeAdjustment}</div>`
+      : ""}
   </div>
   <div class="tile">
     <div class="tile-label">Latency</div>
     <div class="tile-value">${winner.latency} ms</div>
+    ${winner.latencyAdjustment > 0
+      ? `<div style="font-size:.58rem;color:var(--dim);margin-top:2px">+${winner.latencyAdjustment}ms bridge</div>`
+      : ""}
   </div>
   <div class="tile">
     <div class="tile-label">Success</div>
