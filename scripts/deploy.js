@@ -81,7 +81,8 @@ async function main() {
   console.log(`TOKEN_USDC=${await usdc.getAddress()}`);
   console.log(`TOKEN_WETH=${await eth.getAddress()}`);
   console.log(`RPC_URL=http://127.0.0.1:8545`);
-  console.log(`PRIVATE_KEY=${deployer.address}`);
+  console.log(`DEPLOYER_ADDRESS=${deployer.address}`);
+  console.log(`# PRIVATE_KEY=<paste Hardhat account #0 private key here>  # shown by 'npm run node'`);
   console.log("────────────────────────────────────────────────────────\n");
 }
 

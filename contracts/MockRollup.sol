@@ -114,7 +114,7 @@ contract MockRollup {
 
     // ─── View helpers ─────────────────────────────────────────────────────────
 
-    /// @notice Dynamic fee based on current congestion (gwei, scaled ×100 for precision)
+    /// @notice Dynamic fee — returned in same tenths-of-gwei unit as baseFeeGwei (÷ FEE_SCALE for real gwei)
     function getCurrentFee() public view returns (uint256) {
         // fee = baseFee × (1 + (congestion/100)²)
         uint256 congSq = congestionLevel * congestionLevel;

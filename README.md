@@ -94,7 +94,7 @@ npm run deploy
 
 ```bash
 npm run benchmark
-# or: pip install matplotlib numpy && python analysis/benchmark.py
+# or: pip install matplotlib numpy && python3 analysis/benchmark.py
 ```
 
 ---
@@ -114,10 +114,12 @@ npm run benchmark
 ## Key Design Decisions
 
 ### Why off-chain routing?
-On-chain scoring would require reading all rollup states within a single transaction — expensive and slow.  The off-chain router reads rollup state via API calls and records the *routing decision hash* on-chain (IntentRegistry), providing auditability without on-chain computation cost.
+On-chain scoring would require reading all rollup states within a single transaction — expensive and slow.  The off-chain router reads rollup state via API calls and can record the *routing decision hash* (keccak256 of the rationale) on-chain via `IntentRegistry`, providing auditability without on-chain computation cost.
+
+> **Simulation note:** The demo router runs in in-memory simulation mode for fast UI demonstration — it does not submit on-chain transactions.  The `IntentRegistry` contract is fully deployed and supports `recordRouting()` / `recordExecution()` calls; wiring the router to a live node is a straightforward extension.
 
 ### Trust model
-The router is a centralised trust point (see analysis section in frontend).  Mitigation: the routing algorithm is open-source and the reason hash is stored on-chain for verification.
+The router is a centralised trust point (see analysis section in frontend).  Mitigation: the routing algorithm is open-source; in production the reason hash would be stored on-chain for post-hoc verification.
 
 ### Fee model
 `fee = baseFee × (1 + (congestion/100)²)` — quadratic surge matches EIP-1559 behaviour where fees spike faster than congestion during peak demand.

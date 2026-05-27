@@ -597,7 +597,7 @@ Off-chain Intent Router (this server)
     </ul>
     <p style="margin-top:8px">Mitigations implemented in this prototype:</p>
     <ul>
-      <li><strong>On-chain reason hash</strong>: The keccak256 hash of the routing rationale is stored in IntentRegistry, letting any observer verify the router's stated reason after the fact.</li>
+      <li><strong>On-chain reason hash</strong>: The IntentRegistry contract supports storing a keccak256 hash of the routing rationale, letting any observer verify the router's stated reason after the fact. <em>(This demo runs in simulation mode — the contract is deployed and the interface is wired; live submission is a straightforward extension.)</em></li>
       <li><strong>Open routing logic</strong>: The scoring algorithm is open-source — anyone can re-run it with the same rollup snapshots and verify the decision.</li>
       <li><strong>User-controlled preference</strong>: Users express a routing preference (cheapest / fastest / balanced) that constrains the router's freedom.</li>
     </ul>
@@ -641,7 +641,12 @@ Scenario C — All congested equally (~90%):
 Scenario D — All lightly loaded (~5%):
   Fee spread:  0.50 → 1.20 → 3.00 gwei
   Routing overhead (~1ms) vs. fixed fee gap  (always beneficial)</div>
-    <p>Routing provides the highest value during <em>asymmetric congestion</em> — when different rollups have significantly different load at the same instant. This is common in practice as rollups serve different user segments.</p>
+    <p>Two distinct patterns dominate the benefit analysis:</p>
+    <ul>
+      <li><strong>Largest absolute savings → uniform high congestion (Scenario C).</strong>  When all chains are equally stressed, ZK proof overhead causes the fee gap to widen most — the router captures the full spread by routing away from the most expensive chain.</li>
+      <li><strong>Highest adaptive value → asymmetric congestion (Scenario B).</strong>  When one chain spikes while others stay low, a fixed-chain user gets stuck paying the spike; the router detects the shift and re-routes automatically.  This is the most common real-world pattern, as rollups serve different user segments.</li>
+    </ul>
+    <p style="margin-top:8px">Both scenarios justify a routing layer; the dominant benefit depends on current network conditions.</p>
 
     <h3>6. ZK vs. Optimistic Rollups</h3>
     <p>This prototype includes both rollup types, reflecting the real-world ecosystem:</p>
