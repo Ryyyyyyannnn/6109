@@ -182,7 +182,7 @@ The router is a centralised trust point (see analysis section in frontend).  Mit
 
 | Member | Responsibility |
 |--------|---------------|
-| 1      | Smart contracts: MockRollup, IntentRegistry, deploy script |
-| 2      | Router backend: scoring algorithm, REST API, simulation |
-| 3      | Frontend: intent form, routing visualisation, analytics |
-| 4      | Analysis: benchmark script, scalability report, presentation |
+| Chen Zhiyu   | Smart contracts: MockRollup.sol, IntentRegistry.sol, MockToken.sol, scripts/deploy.js |
+| Liu Ruyan    | Router scoring engine: weighted multi-criteria algorithm, fee/latency/success models, congestion simulation, REST API (router/server.js) |
+| Wang Yixuan  | Frontend: intent form, routing decision panel, live rollup cards, analytics dashboard (frontend/index.html) |
+| Zhang Yujie  | Test suite (test/IntentBridge.test.js, 53 tests), on-chain demo (scripts/demo-routing.js), benchmark (analysis/benchmark.py), technical report |
