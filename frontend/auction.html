@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IntentBridge — Multi-Solver Auction</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<style>
+:root {
+  --bg:        #050a0e;
+  --surface:   #0d1b24;
+  --surface2:  #112233;
+  --border:    #1e3448;
+  --accent:    #00e5ff;
+  --accent2:   #7b61ff;
+  --success:   #00ff9d;
+  --warn:      #ffb800;
+  --danger:    #ff4560;
+  --text:      #e0f0ff;
+  --dim:       #607080;
+  --font-mono: 'Space Mono', monospace;
+  --font-disp: 'Syne', sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color:      var(--text);
+  font-family: var(--font-mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body::before {
+  content:''; position:fixed; inset:0;
+  background-image:
+    linear-gradient(rgba(0,229,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,.025) 1px, transparent 1px);
+  background-size:40px 40px;
+  pointer-events:none;
+}
+
+.orb { position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:0; }
+.orb-1 { width:500px; height:500px; background:rgba(0,229,255,.05);  top:-150px; left:-150px; }
+.orb-2 { width:400px; height:400px; background:rgba(123,97,255,.06); bottom:-100px; right:-100px; }
+.orb-3 { width:300px; height:300px; background:rgba(255,69,96,.05);  top:40%; right:-100px; }
+
+.app { position:relative; z-index:1; max-width:1280px; margin:0 auto; padding:0 24px 80px; }
+
+/* ── Header ────────────────────────────────────────────────────────── */
+header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:28px 0 36px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:32px;
+}
+.logo {
+  font-family:var(--font-disp);
+  font-size:1.8rem; font-weight:800; letter-spacing:-1px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+}
+.logo span {
+  font-weight:400; font-size:.7rem; letter-spacing:3px;
+  display:block; background:none; -webkit-text-fill-color:var(--dim); margin-top:-2px;
+}
+.header-right { display:flex; align-items:center; gap:14px; }
+.nav-link {
+  font-size:.7rem; letter-spacing:1.5px; padding:7px 14px;
+  border:1px solid var(--border); color:var(--dim); text-decoration:none;
+  text-transform:uppercase; transition:all .2s;
+}
+.nav-link:hover { border-color:var(--accent); color:var(--accent); }
+
+/* ── Headline ──────────────────────────────────────────────────────── */
+.headline {
+  text-align:center; margin-bottom:28px;
+}
+.headline h1 {
+  font-family:var(--font-disp); font-size:2.2rem; font-weight:800;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  letter-spacing:-1px; margin-bottom:6px;
+}
+.headline p { color:var(--dim); font-size:.85rem; max-width:780px; margin:0 auto; line-height:1.7; }
+
+/* ── Phase timeline ────────────────────────────────────────────────── */
+.phases {
+  display:grid; grid-template-columns:repeat(4,1fr); gap:0;
+  background:var(--surface); border:1px solid var(--border);
+  margin-bottom:24px; position:relative;
+}
+.phases::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+}
+.phase {
+  padding:18px 20px; position:relative; border-right:1px solid var(--border);
+  transition:background .3s;
+}
+.phase:last-child { border-right:none; }
+.phase.active { background:linear-gradient(180deg,rgba(0,229,255,.08),transparent); }
+.phase.done   { background:rgba(0,255,157,.04); }
+.phase-num {
+  font-family:var(--font-disp); font-size:.65rem; color:var(--dim);
+  letter-spacing:2px; margin-bottom:4px;
+}
+.phase-name {
+  font-family:var(--font-disp); font-size:1rem; font-weight:700; letter-spacing:1px;
+}
+.phase.active .phase-name { color:var(--accent); }
+.phase.done   .phase-name { color:var(--success); }
+.phase-meta { font-size:.65rem; color:var(--dim); margin-top:6px; letter-spacing:.5px; }
+.phase-check {
+  position:absolute; top:14px; right:16px; opacity:0;
+  color:var(--success); font-size:1rem; transition:opacity .3s;
+}
+.phase.done .phase-check { opacity:1; }
+
+/* ── Main layout ───────────────────────────────────────────────────── */
+.main-grid {
+  display:grid; grid-template-columns: 2fr 1fr; gap:24px; margin-bottom:24px;
+}
+@media (max-width: 1000px) { .main-grid { grid-template-columns:1fr; } }
+
+/* ── Solver cards ──────────────────────────────────────────────────── */
+.solvers-panel {
+  background:var(--surface); border:1px solid var(--border);
+  padding:24px; position:relative;
+}
+.solvers-panel::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+}
+.panel-title {
+  font-family:var(--font-disp); font-size:.95rem; font-weight:600;
+  letter-spacing:2px; text-transform:uppercase; color:var(--accent);
+  margin-bottom:20px; display:flex; align-items:center; gap:8px;
+}
+.panel-title .dot { width:7px; height:7px; background:var(--accent); flex-shrink:0; }
+
+.solver-grid {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:16px;
+}
+@media (max-width: 800px) { .solver-grid { grid-template-columns:1fr; } }
+
+.solver-card {
+  background:var(--bg); border:1px solid var(--border);
+  padding:18px; position:relative;
+  transition:all .35s cubic-bezier(.4,0,.2,1);
+}
+.solver-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+}
+.solver-card.solverA::before { background:var(--accent); }
+.solver-card.solverB::before { background:var(--warn); }
+.solver-card.solverC::before { background:var(--accent2); }
+
+.solver-card.winner { border-color:var(--success); box-shadow:0 0 24px rgba(0,255,157,.18); }
+.solver-card.slashed { border-color:var(--danger); opacity:.75; }
+.solver-card.committed { border-color:var(--warn); }
+.solver-card.revealed { border-color:var(--accent); }
+
+.sc-name {
+  font-family:var(--font-disp); font-size:1.1rem; font-weight:700;
+  margin-bottom:4px; display:flex; align-items:center; gap:8px;
+}
+.solver-card.solverA .sc-name { color:var(--accent); }
+.solver-card.solverB .sc-name { color:var(--warn); }
+.solver-card.solverC .sc-name { color:var(--accent2); }
+
+.sc-addr { font-size:.6rem; color:var(--dim); margin-bottom:14px; word-break:break-all; }
+
+.sc-status {
+  display:inline-block; padding:3px 9px; font-size:.6rem;
+  letter-spacing:1.5px; text-transform:uppercase;
+  border:1px solid var(--dim); color:var(--dim); margin-bottom:14px;
+}
+.sc-status.committed { color:var(--warn); border-color:var(--warn); }
+.sc-status.revealed  { color:var(--accent); border-color:var(--accent); }
+.sc-status.suppressed { color:var(--danger); border-color:var(--danger); }
+.sc-status.winner    { color:var(--success); border-color:var(--success); background:rgba(0,255,157,.08); }
+.sc-status.slashed   { color:var(--danger); border-color:var(--danger); background:rgba(255,69,96,.08); }
+
+.sc-stat-row {
+  display:flex; justify-content:space-between; font-size:.7rem;
+  padding:6px 0; border-bottom:1px solid rgba(30,52,72,.5);
+}
+.sc-stat-row:last-child { border-bottom:none; }
+.sc-stat-label { color:var(--dim); letter-spacing:.5px; }
+.sc-stat-value { font-weight:700; }
+
+/* Sealed bid flip animation */
+.sc-bid-display {
+  margin-top:12px; padding:10px; background:var(--surface2);
+  border:1px dashed var(--border); text-align:center;
+  font-family:var(--font-disp); font-size:1.15rem; font-weight:700;
+  letter-spacing:1.5px; min-height:44px;
+  display:flex; align-items:center; justify-content:center;
+  transition:all .4s;
+}
+.sc-bid-display.sealed { color:var(--dim); letter-spacing:6px; }
+.sc-bid-display.revealed { color:var(--accent); border-style:solid; }
+.sc-bid-display.suppressed {
+  color:var(--danger); text-decoration:line-through;
+  border-style:solid; border-color:var(--danger);
+}
+
+.sc-hash {
+  margin-top:8px; font-size:.55rem; color:var(--dim); word-break:break-all;
+  font-family:var(--font-mono);
+}
+
+/* ── Log panel ─────────────────────────────────────────────────────── */
+.log-panel {
+  background:var(--surface); border:1px solid var(--border);
+  padding:24px; position:relative; max-height:640px; display:flex; flex-direction:column;
+}
+.log-panel::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg,var(--success),var(--accent));
+}
+.log-panel .panel-title { color:var(--success); }
+.log-panel .panel-title .dot { background:var(--success); }
+
+.log {
+  flex:1; overflow-y:auto; font-size:.7rem; line-height:1.7;
+  background:var(--bg); border:1px solid var(--border); padding:14px;
+  min-height:400px;
+}
+.log-line { padding:3px 0; animation:slide-in .25s ease; }
+@keyframes slide-in { from { opacity:0; transform:translateX(-8px); } to { opacity:1; transform:translateX(0); } }
+.log-line .ts { color:var(--dim); margin-right:8px; }
+.log-line.evt-commit  { color:var(--warn); }
+.log-line.evt-reveal  { color:var(--accent); }
+.log-line.evt-settle  { color:var(--success); }
+.log-line.evt-slash   { color:var(--danger); }
+.log-line.evt-info    { color:var(--text); }
+.log-line.evt-dim     { color:var(--dim); }
+
+/* ── Controls ──────────────────────────────────────────────────────── */
+.controls {
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:10px;
+  margin-bottom:24px;
+}
+.btn {
+  padding:13px 18px; border:none; cursor:pointer;
+  font-family:var(--font-mono); font-size:.75rem; font-weight:700;
+  letter-spacing:1.5px; text-transform:uppercase;
+  transition:all .15s;
+}
+.btn-primary { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#000; }
+.btn-warn    { background:linear-gradient(135deg,var(--warn),var(--danger)); color:#000; }
+.btn-danger  { background:linear-gradient(135deg,var(--danger),var(--accent2)); color:#fff; }
+.btn-ghost   { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+.btn:active { transform:scale(.98); }
+.btn:disabled { opacity:.3; cursor:not-allowed; }
+
+/* ── Outcome panel ─────────────────────────────────────────────────── */
+.outcome-grid {
+  display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:24px;
+}
+@media (max-width: 700px) { .outcome-grid { grid-template-columns:1fr 1fr; } }
+.stat-card {
+  background:var(--surface); border:1px solid var(--border);
+  padding:18px; position:relative;
+}
+.stat-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:var(--accent);
+}
+.stat-card.danger::before { background:var(--danger); }
+.stat-card.success::before { background:var(--success); }
+.stat-label { font-size:.6rem; color:var(--dim); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px; }
+.stat-value { font-family:var(--font-disp); font-size:1.5rem; font-weight:700; color:var(--accent); }
+.stat-value.danger { color:var(--danger); }
+.stat-value.success { color:var(--success); }
+.stat-sub { font-size:.65rem; color:var(--dim); margin-top:2px; }
+
+/* Trust banner */
+.trust-banner {
+  background:var(--surface); border:1px solid var(--border);
+  padding:16px 22px; margin-bottom:24px; position:relative;
+  display:flex; align-items:center; gap:18px;
+}
+.trust-banner::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg,var(--danger),var(--warn),var(--success));
+}
+.tb-icon { font-size:1.4rem; }
+.tb-text { font-size:.78rem; color:var(--text); line-height:1.6; }
+.tb-text strong { color:var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      INTENTBRIDGE
+      <span>MULTI-SOLVER AUCTION</span>
+    </div>
+    <div class="header-right">
+      <a class="nav-link" href="index.html">← Router</a>
+    </div>
+  </header>
+
+  <!-- Headline -->
+  <div class="headline">
+    <h1>Decentralised Bid Market for Intent Execution</h1>
+    <p>
+      A sealed-bid commit–reveal auction where any solver can bid to execute a user's intent.
+      Misbehaviour is provable on-chain via EIP-712 signatures, and slashing makes collusion economically irrational.
+    </p>
+  </div>
+
+  <!-- Trust banner -->
+  <div class="trust-banner">
+    <div class="tb-icon">🔒</div>
+    <div class="tb-text">
+      <strong>Trust upgrade:</strong> the original router was a single trusted off-chain process.
+      In this design, three competing Solvers commit hashed bids; the cheapest revealed wins;
+      and a <em>suppressed</em> lower bid can be proven post-hoc by anyone with a signature + matching commit hash.
+      The misbehaving Solver loses stake. The honest challenger is paid.
+    </div>
+  </div>
+
+  <!-- Phase timeline -->
+  <div class="section-title" style="font-family:var(--font-disp); font-size:.75rem; font-weight:600; letter-spacing:3px; text-transform:uppercase; color:var(--dim); margin-bottom:14px;">Phase Timeline</div>
+  <div class="phases" id="phases">
+    <div class="phase" data-phase="commit">
+      <div class="phase-check">✓</div>
+      <div class="phase-num">PHASE 01</div>
+      <div class="phase-name">COMMIT</div>
+      <div class="phase-meta">Solvers submit sealed bids (hash only)</div>
+    </div>
+    <div class="phase" data-phase="reveal">
+      <div class="phase-check">✓</div>
+      <div class="phase-num">PHASE 02</div>
+      <div class="phase-name">REVEAL</div>
+      <div class="phase-meta">Lowest revealed fee wins</div>
+    </div>
+    <div class="phase" data-phase="challenge">
+      <div class="phase-check">✓</div>
+      <div class="phase-num">PHASE 03</div>
+      <div class="phase-name">CHALLENGE</div>
+      <div class="phase-meta">Anyone can prove a suppressed lower bid</div>
+    </div>
+    <div class="phase" data-phase="settled">
+      <div class="phase-check">✓</div>
+      <div class="phase-num">PHASE 04</div>
+      <div class="phase-name">SETTLED</div>
+      <div class="phase-meta">Winner gains success-credit; stake returns</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-primary" id="btn-run">▶ Run full scenario</button>
+    <button class="btn btn-ghost"   id="btn-start">1. Open auction</button>
+    <button class="btn btn-ghost"   id="btn-commit" disabled>2. Solvers commit</button>
+    <button class="btn btn-warn"    id="btn-reveal" disabled>3. Reveal (C suppressed)</button>
+    <button class="btn btn-danger"  id="btn-challenge" disabled>4. Challenge!</button>
+    <button class="btn btn-ghost"   id="btn-settle" disabled>5. Settle</button>
+    <button class="btn btn-ghost"   id="btn-reset" style="background:var(--surface2);">↺ Reset</button>
+  </div>
+
+  <!-- Main grid: Solvers + Log -->
+  <div class="main-grid">
+    <div class="solvers-panel">
+      <div class="panel-title"><span class="dot"></span>Active Solvers</div>
+      <div class="solver-grid">
+
+        <div class="solver-card solverA" id="card-A">
+          <div class="sc-name">SolverA <small style="color:var(--dim);font-weight:400">honest</small></div>
+          <div class="sc-addr" id="addr-A">—</div>
+          <div class="sc-status" id="status-A">IDLE</div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">stake</span>
+            <span class="sc-stat-value" id="stake-A">1.0 ETH</span>
+          </div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">success</span>
+            <span class="sc-stat-value" id="succ-A">0</span>
+          </div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">slash</span>
+            <span class="sc-stat-value" id="slash-A">0</span>
+          </div>
+          <div class="sc-bid-display sealed" id="bid-A">•••••</div>
+          <div class="sc-hash" id="hash-A"></div>
+        </div>
+
+        <div class="solver-card solverB" id="card-B">
+          <div class="sc-name">SolverB <small style="color:var(--dim);font-weight:400">honest</small></div>
+          <div class="sc-addr" id="addr-B">—</div>
+          <div class="sc-status" id="status-B">IDLE</div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">stake</span>
+            <span class="sc-stat-value" id="stake-B">1.0 ETH</span>
+          </div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">success</span>
+            <span class="sc-stat-value" id="succ-B">0</span>
+          </div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">slash</span>
+            <span class="sc-stat-value" id="slash-B">0</span>
+          </div>
+          <div class="sc-bid-display sealed" id="bid-B">•••••</div>
+          <div class="sc-hash" id="hash-B"></div>
+        </div>
+
+        <div class="solver-card solverC" id="card-C">
+          <div class="sc-name">SolverC <small style="color:var(--warn);font-weight:400">censored target</small></div>
+          <div class="sc-addr" id="addr-C">—</div>
+          <div class="sc-status" id="status-C">IDLE</div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">stake</span>
+            <span class="sc-stat-value" id="stake-C">1.0 ETH</span>
+          </div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">success</span>
+            <span class="sc-stat-value" id="succ-C">0</span>
+          </div>
+          <div class="sc-stat-row">
+            <span class="sc-stat-label">slash</span>
+            <span class="sc-stat-value" id="slash-C">0</span>
+          </div>
+          <div class="sc-bid-display sealed" id="bid-C">•••••</div>
+          <div class="sc-hash" id="hash-C"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="log-panel">
+      <div class="panel-title"><span class="dot"></span>Event log</div>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <!-- Outcome -->
+  <div class="outcome-grid">
+    <div class="stat-card">
+      <div class="stat-label">Intent fee paid</div>
+      <div class="stat-value" id="final-fee">—</div>
+      <div class="stat-sub" id="final-fee-sub">winning bid</div>
+    </div>
+    <div class="stat-card success">
+      <div class="stat-label">Final winner</div>
+      <div class="stat-value success" id="final-winner">—</div>
+      <div class="stat-sub">after dispute</div>
+    </div>
+    <div class="stat-card danger">
+      <div class="stat-label">Slashed amount</div>
+      <div class="stat-value danger" id="slashed-amount">—</div>
+      <div class="stat-sub" id="slashed-from">—</div>
+    </div>
+    <div class="stat-card success">
+      <div class="stat-label">Challenger reward</div>
+      <div class="stat-value success" id="challenger-reward">—</div>
+      <div class="stat-sub">50% of slash</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+// ── Demo state ─────────────────────────────────────────────────────────────
+// Real ethers.js handles signing/hashing so the values shown are genuine — they
+// would also be accepted by the on-chain IntentAuction contract.  Only the
+// "blockchain" itself is simulated (no RPC needed).
+
+const ROUTE_HASH = ethers.id("via-rollupA-fastpath");
+const INTENT_ID  = ethers.id("intent-payment-100usdc-" + Math.floor(Math.random()*1e6));
+
+// Random wallets in-page so addresses look real but no funds at risk.
+const wallets = {
+  A: ethers.Wallet.createRandom(),
+  B: ethers.Wallet.createRandom(),
+  C: ethers.Wallet.createRandom(),
+};
+
+const bids = {
+  A: { fee: 8,  latency: 1200, nonce: 11n, willReveal: true,  honest: true  },
+  B: { fee: 10, latency: 1100, nonce: 22n, willReveal: true,  honest: true  },
+  C: { fee: 5,  latency: 1300, nonce: 33n, willReveal: false, honest: true  },
+};
+
+// State machine
+let state = {
+  phase: "none",                  // none | commit | reveal | challenge | settled
+  winner: null,                   // "A" | "B" | "C"
+  winningFee: null,
+  slashed: null,
+  challengerReward: null,
+  disputed: false,
+};
+
+// ── DOM helpers ────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function setStatus(s, text, cls) {
+  const el = $("status-" + s);
+  el.textContent = text;
+  el.className = "sc-status " + (cls || "");
+}
+function setCardCls(s, cls) {
+  const card = $("card-" + s);
+  card.classList.remove("winner", "slashed", "committed", "revealed");
+  if (cls) card.classList.add(cls);
+}
+function setBid(s, mode, value) {
+  const el = $("bid-" + s);
+  el.classList.remove("sealed", "revealed", "suppressed");
+  el.classList.add(mode);
+  if (mode === "sealed") el.textContent = "•••••";
+  else if (mode === "revealed") el.textContent = value + " gwei";
+  else if (mode === "suppressed") el.textContent = "[suppressed]";
+}
+function setHash(s, h) { $("hash-" + s).textContent = h ? "commit: " + h.slice(0,18) + "…" : ""; }
+
+function setPhase(p) {
+  state.phase = p;
+  const order = ["commit", "reveal", "challenge", "settled"];
+  const idx = order.indexOf(p);
+  document.querySelectorAll(".phase").forEach(el => {
+    el.classList.remove("active", "done");
+    const ph = el.dataset.phase;
+    const pi = order.indexOf(ph);
+    if (pi < idx) el.classList.add("done");
+    else if (pi === idx) el.classList.add("active");
+  });
+}
+
+function log(msg, kind) {
+  const ts = new Date().toLocaleTimeString();
+  const div = document.createElement("div");
+  div.className = "log-line evt-" + (kind || "info");
+  div.innerHTML = `<span class="ts">[${ts}]</span>${msg}`;
+  $("log").appendChild(div);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ── Cryptography (real, via ethers v6) ─────────────────────────────────────
+
+function commitHashFor(addr, fee, latency, route, nonce) {
+  return ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+    ["address", "uint128", "uint64", "bytes32", "uint256"],
+    [addr, fee, latency, route, nonce]
+  ));
+}
+
+async function signEIP712Bid(wallet, intentId, addr, fee, latency, route, nonce) {
+  // Demo only — verifyingContract is a placeholder address.
+  const domain = {
+    name: "IntentAuction", version: "1", chainId: 31337n,
+    verifyingContract: "0x0000000000000000000000000000000000000000",
+  };
+  const types = {
+    Bid: [
+      { name: "intentId",        type: "bytes32" },
+      { name: "solver",          type: "address" },
+      { name: "quotedFeeGwei",   type: "uint128" },
+      { name: "quotedLatencyMs", type: "uint64"  },
+      { name: "routePlanHash",   type: "bytes32" },
+      { name: "nonce",           type: "uint256" },
+    ],
+  };
+  const value = {
+    intentId, solver: addr,
+    quotedFeeGwei: fee,
+    quotedLatencyMs: latency,
+    routePlanHash: route,
+    nonce,
+  };
+  return wallet.signTypedData(domain, types, value);
+}
+
+// ── Scenario steps ─────────────────────────────────────────────────────────
+
+function initAddresses() {
+  for (const s of ["A","B","C"]) $("addr-" + s).textContent = wallets[s].address;
+}
+
+async function step1_open() {
+  setPhase("commit");
+  log("startAuction(intentId=" + INTENT_ID.slice(0,14) + "…) — auction opens", "info");
+  log("Commit window: 5 blocks · Reveal: 5 · Challenge: 20", "dim");
+  $("btn-start").disabled = true;
+  $("btn-commit").disabled = false;
+}
+
+async function step2_commit() {
+  log("Phase: COMMIT — Solvers compute keccak256(bid + nonce) and post on-chain", "info");
+  for (const s of ["A","B","C"]) {
+    await sleep(450);
+    const b = bids[s];
+    const h = commitHashFor(wallets[s].address, b.fee, b.latency, ROUTE_HASH, b.nonce);
+    setStatus(s, "COMMITTED", "committed");
+    setCardCls(s, "committed");
+    setHash(s, h);
+    log(`Solver${s}: commitBid(${h.slice(0,14)}…)   <em style="color:var(--dim)">hidden fee=${b.fee} gwei</em>`, "commit");
+  }
+  $("btn-commit").disabled = true;
+  $("btn-reveal").disabled = false;
+}
+
+async function step3_reveal() {
+  setPhase("reveal");
+  log("Phase: REVEAL — solvers must open their bids", "info");
+  let provisional = null;
+  for (const s of ["A","B","C"]) {
+    await sleep(550);
+    const b = bids[s];
+    if (!b.willReveal) {
+      setStatus(s, "SUPPRESSED", "suppressed");
+      setBid(s, "suppressed");
+      setCardCls(s, "");
+      $("card-" + s).classList.add("slashed");
+      log(`Solver${s}: <strong>reveal TX SUPPRESSED</strong>  (their 5 gwei bid never reached the chain)`, "slash");
+      continue;
+    }
+    setStatus(s, "REVEALED " + b.fee + " gwei", "revealed");
+    setBid(s, "revealed", b.fee);
+    setCardCls(s, "revealed");
+    log(`Solver${s}: revealBid(fee=${b.fee} gwei, latency=${b.latency} ms) ✓ commit-binding verified`, "reveal");
+    if (provisional === null || b.fee < bids[provisional].fee) provisional = s;
+  }
+  state.winner = provisional;
+  state.winningFee = bids[provisional].fee;
+  $("card-" + provisional).classList.add("winner");
+  setStatus(provisional, "PROVISIONAL WINNER", "winner");
+  log(`Provisional winner: Solver${provisional} at ${state.winningFee} gwei. <em style="color:var(--warn)">But SolverC actually bid less…</em>`, "info");
+  $("btn-reveal").disabled = true;
+  $("btn-challenge").disabled = false;
+}
+
+async function step4_challenge() {
+  setPhase("challenge");
+  log("Phase: CHALLENGE — anyone with proof of a better bid can act", "info");
+  await sleep(600);
+  log("Reading SolverC's commit hash from the chain… match required.", "dim");
+  await sleep(500);
+  const cBid = bids.C;
+  const sig = await signEIP712Bid(
+    wallets.C, INTENT_ID, wallets.C.address,
+    cBid.fee, cBid.latency, ROUTE_HASH, cBid.nonce
+  );
+  log("EIP-712 signature by SolverC recovered: ✓  " + sig.slice(0,18) + "…", "reveal");
+  log(`Quoted fee ${cBid.fee} gwei  <  current winner ${state.winningFee} gwei  ✓`, "reveal");
+  await sleep(450);
+  log("challenge() invoked → slashing previous winner Solver" + state.winner, "slash");
+  await sleep(300);
+  // Slash & reward
+  const previousWinner = state.winner;
+  const slashAmount = 0.05;            // 0.05 ETH (per contract SLASH_AMOUNT)
+  const reward = slashAmount * 0.5;    // 50% to challenger
+  state.slashed = { who: previousWinner, amount: slashAmount };
+  state.challengerReward = reward;
+  state.winner = "C";
+  state.winningFee = cBid.fee;
+  state.disputed = true;
+  // Visual updates
+  $("card-" + previousWinner).classList.remove("winner");
+  $("card-" + previousWinner).classList.add("slashed");
+  setStatus(previousWinner, "SLASHED −0.05 ETH", "slashed");
+  $("stake-" + previousWinner).textContent = "0.95 ETH";
+  $("slash-" + previousWinner).textContent = "1";
+
+  setCardCls("C", "winner");
+  setStatus("C", "PROMOTED WINNER", "winner");
+  setBid("C", "revealed", cBid.fee);
+
+  log(`Solver${previousWinner} stake reduced by ${slashAmount} ETH → 0.95 ETH`, "slash");
+  log(`Challenger rewarded ${reward} ETH (50% of slash)`, "settle");
+  log("Auction winner now SolverC at " + cBid.fee + " gwei", "info");
+  $("btn-challenge").disabled = true;
+  $("btn-settle").disabled = false;
+  updateOutcome();
+}
+
+async function step5_settle() {
+  setPhase("settled");
+  log("Phase: SETTLED — challenge window closed without further dispute", "info");
+  await sleep(400);
+  log("settle() → registry.recordSuccess(SolverC)", "settle");
+  $("succ-C").textContent = "1";
+  setStatus("C", "FINAL WINNER ★", "winner");
+  $("btn-settle").disabled = true;
+  log("Done. User receives execution at " + state.winningFee + " gwei (the actual best price).", "settle");
+}
+
+function updateOutcome() {
+  $("final-fee").textContent = state.winningFee + " gwei";
+  $("final-fee-sub").textContent = state.disputed ? "post-dispute (lower than reveal)" : "winning bid";
+  $("final-winner").textContent = "Solver" + state.winner;
+  if (state.slashed) {
+    $("slashed-amount").textContent = state.slashed.amount + " ETH";
+    $("slashed-from").textContent = "from Solver" + state.slashed.who;
+    $("challenger-reward").textContent = state.challengerReward + " ETH";
+  }
+}
+
+// ── Reset ──────────────────────────────────────────────────────────────────
+function resetAll() {
+  state = { phase:"none", winner:null, winningFee:null, slashed:null, challengerReward:null, disputed:false };
+  for (const s of ["A","B","C"]) {
+    setStatus(s, "IDLE", "");
+    setBid(s, "sealed");
+    setHash(s, "");
+    setCardCls(s, "");
+    $("stake-" + s).textContent = "1.0 ETH";
+    $("succ-" + s).textContent  = "0";
+    $("slash-" + s).textContent = "0";
+  }
+  document.querySelectorAll(".phase").forEach(el => el.classList.remove("active","done"));
+  $("log").innerHTML = "";
+  log("Auction ready. Click ‘Run full scenario’ for a 12-second walkthrough, or step through manually.", "dim");
+  ["final-fee","final-winner","slashed-amount","challenger-reward"].forEach(id => $(id).textContent = "—");
+  $("final-fee-sub").textContent = "winning bid";
+  $("slashed-from").textContent  = "—";
+  $("btn-start").disabled    = false;
+  $("btn-commit").disabled   = true;
+  $("btn-reveal").disabled   = true;
+  $("btn-challenge").disabled= true;
+  $("btn-settle").disabled   = true;
+}
+
+// ── Auto-run pipeline ──────────────────────────────────────────────────────
+async function runAll() {
+  document.querySelectorAll(".btn").forEach(b => b.disabled = true);
+  resetAll();
+  await sleep(300);
+  $("btn-start").disabled = true;
+  await step1_open();      await sleep(800);
+  await step2_commit();    await sleep(800);
+  await step3_reveal();    await sleep(1100);
+  await step4_challenge(); await sleep(900);
+  await step5_settle();
+  $("btn-reset").disabled = false;
+}
+
+// ── Bind controls ──────────────────────────────────────────────────────────
+$("btn-run").onclick      = runAll;
+$("btn-start").onclick    = step1_open;
+$("btn-commit").onclick   = step2_commit;
+$("btn-reveal").onclick   = step3_reveal;
+$("btn-challenge").onclick= step4_challenge;
+$("btn-settle").onclick   = step5_settle;
+$("btn-reset").onclick    = resetAll;
+
+initAddresses();
+resetAll();
+</script>
+
+</body>
+</html>

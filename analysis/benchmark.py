@@ -1,4 +1,4 @@
-"""
+git branch"""
 IntentBridge — Routing Benchmark & Scalability Analysis
 ========================================================
 SC6019 Option 6 Analysis Script
@@ -10,6 +10,8 @@ Run:   python analysis/benchmark.py
 Deps:  pip install matplotlib numpy   (optional — falls back to text tables)
 """
 
+import json
+import os
 import random
 import math
 import statistics
@@ -628,8 +630,72 @@ def run_sensitivity_analysis():
     print("\n" + "═" * 90)
 
 
+# ─── Per-bucket distribution export  (used by the live TOPSIS endpoint) ──────
+#
+# For each rollup and each congestion "bucket", sample congestion ~ N(bucket, σ)
+# clipped to [0, 100], then evaluate fee / latency / success.  Output p05, mean,
+# and p95 per metric.  router/server.js reads this file at startup and uses the
+# nearest bucket to the current congestion to render confidence intervals on the
+# TOPSIS score without doing live Monte Carlo work per request.
+
+DIST_BUCKETS = [5, 15, 25, 35, 45, 55, 65, 75, 85, 95]
+DIST_SIGMA   = 8.0   # std-dev of congestion noise around each bucket centre
+DIST_DRAWS   = 4000
+
+
+def _quantiles(values):
+    s = sorted(values)
+    n = len(s)
+    return {
+        "mean": sum(s) / n,
+        "p05":  s[max(0, int(n * 0.05))],
+        "p95":  s[min(n - 1, int(n * 0.95))],
+    }
+
+
+def export_distributions(out_path: str = "router/data/distributions.json"):
+    """Write per-rollup, per-bucket {fee, latency, success} quantiles to JSON."""
+    rng = random.Random(2026)
+    out: Dict[str, dict] = {}
+    for r in ROLLUPS:
+        bins = []
+        for bucket in DIST_BUCKETS:
+            fees, lats, succs = [], [], []
+            for _ in range(DIST_DRAWS):
+                c = max(0.0, min(100.0, rng.gauss(bucket, DIST_SIGMA)))
+                fees.append(r.fee(c))
+                lats.append(r.latency(c))
+                succs.append(r.success_prob(c))
+            bins.append({
+                "bucket":  bucket,
+                "fee":     _quantiles(fees),
+                "latency": _quantiles(lats),
+                "success": _quantiles(succs),
+            })
+        out[r.id] = {
+            "name":       r.name,
+            "rollupType": r.rollup_type,
+            "bins":       bins,
+        }
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump({
+            "generatedAt": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "buckets":     DIST_BUCKETS,
+            "sigma":       DIST_SIGMA,
+            "draws":       DIST_DRAWS,
+            "rollups":     out,
+        }, f, indent=2)
+    print(f"  Wrote {out_path}  "
+          f"({len(DIST_BUCKETS)} buckets × {DIST_DRAWS} draws)")
+
+
 if __name__ == "__main__":
-    print("Running benchmark...")
+    print("Exporting per-bucket distribution quantiles for the live TOPSIS endpoint...")
+    export_distributions()
+
+    print("\nRunning benchmark...")
     results = run_benchmark()
     print_table(results)
     print_scalability_analysis(results)

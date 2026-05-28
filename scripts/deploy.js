@@ -66,6 +66,29 @@ async function main() {
   const addrReg = await registry.getAddress();
   console.log("IntentRegistry     :", addrReg);
 
+  // ── Deploy Multi-Solver auction stack ─────────────────────────────────────
+  //
+  // SolverRegistry handles Solver stake and is the slash authority.
+  // IntentAuction runs commit-reveal sealed-bid auctions and is the only
+  // address allowed to call slash().  We wire the registry's treasury to
+  // the auction contract so slashed funds flow there for the challenger
+  // reward split.
+  const SolverRegistry = await hre.ethers.getContractFactory("SolverRegistry");
+  const solverReg      = await SolverRegistry.deploy(deployer.address);
+  await solverReg.waitForDeployment();
+  const addrSolverReg  = await solverReg.getAddress();
+
+  const IntentAuction = await hre.ethers.getContractFactory("IntentAuction");
+  const auction       = await IntentAuction.deploy(addrSolverReg);
+  await auction.waitForDeployment();
+  const addrAuction   = await auction.getAddress();
+
+  await (await solverReg.setAuction (addrAuction)).wait();
+  await (await solverReg.setTreasury(addrAuction)).wait();
+
+  console.log("SolverRegistry     :", addrSolverReg);
+  console.log("IntentAuction      :", addrAuction);
+
   // ── Mint test tokens ──────────────────────────────────────────────────────
   const amount = hre.ethers.parseEther("1000000");
   await usdc.mint(deployer.address, amount);
@@ -75,6 +98,8 @@ async function main() {
   // ── Print config for router/frontend ─────────────────────────────────────
   console.log("\n── Paste into router/.env ──────────────────────────────");
   console.log(`REGISTRY_ADDRESS=${addrReg}`);
+  console.log(`SOLVER_REGISTRY_ADDRESS=${addrSolverReg}`);
+  console.log(`INTENT_AUCTION_ADDRESS=${addrAuction}`);
   console.log(`ROLLUP_A_ADDRESS=${addrA}`);
   console.log(`ROLLUP_B_ADDRESS=${addrB}`);
   console.log(`ROLLUP_C_ADDRESS=${addrC}`);
