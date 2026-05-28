@@ -112,14 +112,14 @@ const ROLLUPS = {
     name:          "ZkRapid",
     fullName:      "ZkRapid Proof Network",
     rollupType:    "ZK",
-    description:   "ZK validity-proof rollup. Cryptographic finality within ~1h. Higher base cost from proof generation overhead.",
+    description:   "ZK validity-proof rollup. L1 finality in tens of minutes to hours (batch proving pipeline). Higher base cost from proof generation overhead.",
     color:         "#7b61ff",
     // Calibrated on: zkSync Era ~0.1–0.5 gwei typical; ZK proof overhead
     // adds ~3–5× vs optimistic (PLONK/STARK verification gas on L1).
     // Using 3.0 gwei as representative cost under moderate load.
     baseFeeGwei:              3.0,
-    confirmationLatencyMs:    300,    // fast sequencer soft-confirm; L1 proof posting ~1h
-    settlementAssumption:     "ZK validity proof — L1 finality within ~1 hour of batch posting",
+    confirmationLatencyMs:    300,    // fast sequencer soft-confirm; L1 proof posting varies
+    settlementAssumption:     "ZK validity proof — L1 finality in tens of minutes to hours (depends on proving/batch pipeline; zkSync Era typically 3+ h)",
     congestion:               55,
     // ZK rollups have narrower DeFi ecosystems currently → lower liquidity for
     // non-ETH tokens; higher slippage on WBTC/DAI swaps.
@@ -168,7 +168,13 @@ function getLatency(rollupId) {
  * Slippage cost in basis points for a token_swap intent.
  * Model: base slippage = 5 bps at perfect liquidity (depth = 1.0).
  * Lower liquidity → higher slippage: slippage_bps = BASE_BPS / liquidity.
- * Ref: standard AMM price-impact approximation for thin markets.
+ *
+ * IMPORTANT LIMITATION: this models network routing cost (which chain has the
+ * best liquidity pool), NOT AMM price impact.  Real DEX slippage scales with
+ * swap amount relative to pool TVL: impact ≈ amount / (2 × reserve).  This
+ * model is amount-invariant — it treats all swap sizes identically and is
+ * appropriate only for comparing RELATIVE rollup quality, not for quoting
+ * actual swap costs to end users.
  */
 function getSlippageBps(rollupId, token) {
   const liq = (ROLLUPS[rollupId].liquidity || {})[token] ?? 0.5;
@@ -502,15 +508,18 @@ app.post("/api/intents/batch-preview", (req, res) => {
   //   Batching N intents into one multicall shares this overhead across all N,
   //   reducing the per-intent base cost from 21,000 to 21,000/N gas.
   //
-  //   Per-intent execution gas (storage writes, token transfers) ≈ 50,000 gas
+  //   Per-intent execution gas (warm-slot storage writes in a batch) ≈ 80,000 gas
   //   and cannot be amortised — it is paid regardless.
+  //   Note: a standalone cold-storage submitIntent costs ~207,000 gas (observed).
+  //   In a batch the 2nd+ intents hit warm slots (EIP-2929), so ~80,000 per
+  //   additional intent is a realistic estimate.
   //
-  //   Single:  (21,000 + 50,000) × gasPriceGwei = 71,000 × p   gwei
-  //   Batch:   (21,000/N + 50,000) × gasPriceGwei              gwei per intent
-  //   Max saving: 21,000 × (1 − 1/N) / 71,000 ≈ 29.5% as N → ∞
+  //   Single:  (21,000 + 80,000) × gasPriceGwei = 101,000 × p   gwei
+  //   Batch:   (21,000/N + 80,000) × gasPriceGwei               gwei per intent
+  //   Max saving: 21,000 / 101,000 ≈ 20.8% as N → ∞
 
   const BASE_GAS   = 21_000;
-  const INTENT_GAS = 50_000;
+  const INTENT_GAS = 80_000;
   const n          = Math.max(2, Math.min(500, Number(count)));
   const gasPrice   = winner.fee;   // gwei per gas unit
 

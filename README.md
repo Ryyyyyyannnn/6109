@@ -17,13 +17,18 @@ intentbridge/
 │   ├── MockRollup.sol         Simulated rollup execution environment
 │   └── IntentRegistry.sol     On-chain intent & routing decision ledger
 ├── scripts/
-│   └── deploy.js              Deploy all contracts + seed test tokens
+│   ├── deploy.js              Deploy all contracts + seed test tokens
+│   └── demo-routing.js        End-to-end on-chain lifecycle demo
 ├── router/
 │   └── server.js              Off-chain routing engine (Express REST API)
 ├── frontend/
 │   └── index.html             Full UI — intent form, routing viz, analytics
 ├── analysis/
-│   └── benchmark.py           Routing benchmark across congestion scenarios
+│   └── benchmark.py           Routing benchmark + intent-type + baseline comparison
+├── test/
+│   └── IntentBridge.test.js   53 tests: contracts + router scoring logic
+├── docs/
+│   └── report.md              Architecture, assumptions, baseline results
 ├── hardhat.config.js
 └── package.json
 ```
@@ -97,6 +102,39 @@ npm run benchmark
 # or: pip install matplotlib numpy && python3 analysis/benchmark.py
 ```
 
+### Step 6 — (Optional) On-chain lifecycle demo
+
+Requires a running local node (`npm run node`).  Deploys all contracts and
+walks through the full intent lifecycle on-chain: submitIntent → recordRouting →
+executeIntent → recordExecution / recordFailure.
+
+```bash
+# Terminal 1
+npm run node
+
+# Terminal 2
+npm run demo-routing
+```
+
+### Step 7 — Run tests
+
+```bash
+npm test
+# 53 tests: MockRollup, IntentRegistry, router scoring logic
+```
+
+---
+
+## Technical Report
+
+See [`docs/report.md`](docs/report.md) for:
+
+- Full system architecture diagram
+- Design assumptions and limitations
+- Baseline comparison results and interpretation
+- Scalability analysis
+- Trust model summary
+
 ---
 
 ## Feature Requirements Checklist
@@ -126,15 +164,17 @@ The router is a centralised trust point (see analysis section in frontend).  Mit
 
 ---
 
-## Gas Analysis (from deploy)
+## Gas Analysis (observed on local Hardhat node, `npm run demo-routing`)
 
-| Operation               | Estimated Gas | Notes              |
-|-------------------------|---------------|--------------------|
-| Deploy MockRollup       | ~400,000      | 3 instances        |
-| Deploy IntentRegistry   | ~800,000      |                    |
-| executeIntent()         | ~80,000       | per intent         |
-| recordRouting()         | ~60,000       | router call        |
-| recordExecution()       | ~40,000       | router call        |
+| Operation               | Observed Gas | Notes                                      |
+|-------------------------|--------------|--------------------------------------------|
+| Deploy MockRollup       | ~866,000     | per instance; 3 deployed                  |
+| Deploy IntentRegistry   | ~943,000     |                                            |
+| submitIntent()          | ~207,000     | first call; PENDING state write            |
+| recordRouting()         | ~123,000     | PENDING → ROUTED; writes 6 fields          |
+| executeIntent()         | ~233,000     | on MockRollup; writes ExecutedIntent struct|
+| recordExecution()       | ~142,000     | ROUTED → EXECUTED; updates global stats    |
+| recordFailure()         | ~32,000      | ROUTED → FAILED; minimal write             |
 
 ---
 

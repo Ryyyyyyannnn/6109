@@ -127,9 +127,14 @@ contract MockRollup {
     }
 
     /// @notice Estimated success probability (basis points, 10000 = 100%)
+    /// ZK rollups: validity proofs protect correctness; sequencer liveness modelled
+    ///   as congestion-independent at 99% (simulation assumption — not empirical).
+    /// Optimistic rollups: high congestion increases nonce races / drops; floor 70%.
     function getSuccessProbabilityBps() public view returns (uint256) {
-        // Higher congestion → more reverts.  Floor at 7000 (70%).
-        uint256 penalty = congestionLevel * 30;  // up to 3000 bps penalty at 100% congestion
+        if (keccak256(abi.encodePacked(rollupType)) == keccak256(abi.encodePacked("zk"))) {
+            return 9900;
+        }
+        uint256 penalty = congestionLevel * 30;  // up to 3000 bps at 100% congestion
         return penalty >= 3000 ? 7000 : 10000 - penalty;
     }
 

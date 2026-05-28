@@ -8,7 +8,8 @@
     "deploy:sepolia": "npx hardhat run scripts/deploy.js --network sepolia",
     "router":         "node router/server.js",
     "benchmark":      "python3 analysis/benchmark.py",
-    "test":           "npx hardhat test"
+    "test":           "npx hardhat test",
+    "demo-routing":   "npx hardhat run scripts/demo-routing.js --network localhost"
   },
   "dependencies": {
     "cors":    "^2.8.5",
