@@ -31,13 +31,13 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Smart-contract layer  (Hardhat / localhost:8545)                   │
 │                                                                     │
-│  IntentRegistry.sol           MockRollup.sol (×3)                   │
-│  ┌─────────────────┐          ┌──────────────────────────────────┐  │
-│  │ submitIntent    │          │ ArbiNova  baseFee 5  lat 2000 ms │  │
-│  │ recordRouting   │◀──router │ OptiSwift baseFee 12 lat  800 ms │  │
-│  │ recordExecution │          │ ZkRapid   baseFee 30 lat  300 ms │  │
-│  │ recordFailure   │          └──────────────────────────────────┘  │
-│  └─────────────────┘                                                │
+│  IntentRegistry.sol           MockRollup.sol (×3)                      │
+│  ┌─────────────────┐          ┌─────────────────────────────────────┐  │
+│  │ submitIntent    │          │ ArbiNova  baseFee 0.5g  lat 2000 ms │  │
+│  │ recordRouting   │◀──router │ OptiSwift baseFee 1.2g  lat  800 ms │  │
+│  │ recordExecution │          │ ZkRapid   baseFee 3.0g  lat  300 ms │  │
+│  │ recordFailure   │          └─────────────────────────────────────┘  │
+│  └─────────────────┘                                                   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -172,14 +172,14 @@ selects *which* rollup to use; it does not simulate execution within the pool.
 If amount-aware slippage is needed, replace `getSlippageBps()` in `router/server.js`
 with a TVL-based price-impact formula (not currently in scope).
 
-### 4.6 Fee and latency data freshness
+### 4.6 Fee and latency data freshness (congestion update interval)
 
 Congestion state changes every 4 seconds in the simulation.  In production, a router
 would subscribe to sequencer mempool feeds or L2 RPC endpoints.  The simulation
 deliberately uses stochastic noise (Gaussian) rather than purely deterministic values
 to exercise the adaptive routing behaviour.
 
-### 4.6 Bridge latency model
+### 4.7 Bridge latency model
 
 `bridge_latency_overhead = bridge_latency_ms[rollup] × 0.30`
 
@@ -239,8 +239,9 @@ so the relative ranking is preserved.
 | Avg fee overhead (WBTC swap) | +0.0017 gwei (slippage)       |
 
 **Model value: cost transparency, not routing shifts.**
-Without intent-type modelling the UI would display 330 ms for an asset transfer
-that actually takes ~18 s; WBTC swap cost would omit slippage entirely.
+Without intent-type modelling the UI would display ~800 ms for an asset transfer
+that actually takes ~23 s (800 ms routing latency + 22 500 ms bridge overhead);
+WBTC swap cost would omit slippage entirely.
 
 ---
 
@@ -268,7 +269,7 @@ the registry to an L2 itself.
 
 ### EVM batching analysis
 
-Observed gas per cold `submitIntent()` call: **~207 000** (see gas table above).
+Observed gas per cold `submitIntent()` call: **~207 000** (see gas table in README.md).
 In a batched multicall, the 2nd+ intents reuse warm storage slots (EIP-2929), reducing
 the per-intent incremental cost to an estimated **~80 000 gas**.
 
